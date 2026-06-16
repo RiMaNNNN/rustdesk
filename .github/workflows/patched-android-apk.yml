@@ -23,6 +23,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Set up JDK 17 (required by wakelock_plus / AGP)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Install Flutter ${{ env.FLUTTER_VERSION }}
         uses: subosito/flutter-action@v2
         with:
@@ -48,6 +54,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android-arm64
 
       - name: Install build dependencies (nasm/ninja for aom/vpx/ffmpeg)
         run: |
