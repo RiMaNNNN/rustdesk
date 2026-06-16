@@ -61,14 +61,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(
-        child: Row(
+        // Wrap the home window content in a SelectionArea so all of its text
+        // (your ID, peer IDs/cards, status and help text) can be selected and
+        // copied with the mouse / Ctrl+C. Safe here: this window has no
+        // interactive remote-control canvas to conflict with selection drags.
+        child: SelectionArea(
+            child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         buildLeftPane(context),
         if (!isIncomingOnly) const VerticalDivider(width: 1),
         if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
       ],
-    ));
+    )));
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -91,6 +96,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         child: loadLogo(),
       ),
       buildTip(context),
+      Align(
+        alignment: Alignment.center,
+        child: Text(
+          "Current Version Patched by CLAUDE - Jun 2026 (don't update)",
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFFE69500)),
+        ),
+      ).marginSymmetric(vertical: 6.0),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
       FutureBuilder<Widget>(

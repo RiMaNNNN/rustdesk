@@ -3974,20 +3974,12 @@ void earlyAssert() {
 }
 
 void checkUpdate() {
-  if (!isWeb) {
-    if (!bind.isCustomClient()) {
-      platformFFI.registerEventHandler(
-          kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
-          (Map<String, dynamic> evt) async {
-        if (evt['url'] is String) {
-          stateGlobal.updateUrl.value = evt['url'];
-        }
-      });
-      Timer(const Duration(seconds: 1), () async {
-        bind.mainGetSoftwareUpdateUrl();
-      });
-    }
-  }
+  // Automatic update checking is intentionally disabled in this patched build.
+  // Accepting an in-app update would replace the app with a stock build and
+  // lose the local patches (render-slowdown fix + dual-GPU mitigations).
+  // The Rust-side auto-updater is also gated by the "allow-auto-update" option,
+  // which is off by default - leave it off to stay on this patched version.
+  return;
 }
 
 // https://github.com/flutter/flutter/issues/153560#issuecomment-2497160535

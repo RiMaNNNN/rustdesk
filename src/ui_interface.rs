@@ -202,7 +202,19 @@ pub fn use_texture_render() -> bool {
         #[cfg(not(debug_assertions))]
         let default_texture = crate::platform::is_win_10_or_greater();
         if default_texture {
-            LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) != "N"
+            // Default D3D texture rendering to OFF for this build.
+            //
+            // On hybrid / Optimus dual-GPU Windows laptops (Intel iGPU + NVIDIA
+            // dGPU, like this machine) the texture-render path frequently
+            // presents a black or garbled frame because the decoder/renderer
+            // GPU adapter (LUID) does not match the adapter the frame was
+            // produced on (rustdesk/rustdesk discussions #12007, #12574, #13337;
+            // the official docs also warn D3D render "may be black on some
+            // devices"). The software render path is reliable here. Users whose
+            // setup handles texture rendering can re-enable it in
+            // Settings -> Display ("Use texture rendering"), which sets
+            // `use-texture-render` = Y.
+            LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) == "Y"
         } else {
             return LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) == "Y";
         }

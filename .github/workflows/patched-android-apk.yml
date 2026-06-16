@@ -1,0 +1,86 @@
+name: patched-android-apk
+# Builds a patched RustDesk Android APK (arm64-v8a) on Linux CI.
+# Includes: render-slowdown fix (#8136 residual) + disabled auto-update check.
+# Generated bridge files are committed, so no flutter_rust_bridge codegen step is needed.
+on:
+  push:
+    branches: [ patched-1.4.7 ]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  NDK_VERSION: "r28c"
+  CARGO_NDK_VERSION: "3.1.2"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  RUST_VERSION: "1.75"
+
+jobs:
+  build-arm64-apk:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Patch Flutter SDK (dropdown_menu enableFilter)
+        run: |
+          FLUTTER_BIN=$(readlink -f "$(which flutter)")
+          FLUTTER_ROOT=$(dirname "$(dirname "$FLUTTER_BIN")")
+          echo "Flutter root: $FLUTTER_ROOT"
+          (cd "$FLUTTER_ROOT" && git apply "$GITHUB_WORKSPACE/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff") || echo "patch already applied or not needed"
+
+      - name: Setup Android NDK ${{ env.NDK_VERSION }}
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
+      - name: Install Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-linux-android
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+
+      - name: Build Android C dependencies (arm64-v8a)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+        run: |
+          ./flutter/build_android_deps.sh arm64-v8a
+
+      - name: Build patched librustdesk.so (arm64)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+        run: |
+          cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
+          ./flutter/ndk_arm64.sh
+          mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
+          cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
+          cp ./target/aarch64-linux-android/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+
+      - name: Build APK
+        run: |
+          cd flutter
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64
+
+      - name: Upload patched APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-patched-arm64-apk
+          path: flutter/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error

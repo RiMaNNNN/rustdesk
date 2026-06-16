@@ -1231,6 +1231,28 @@ impl<T: InvokeUiSession> Remote<T> {
             let ctl = &mut thread.fps_control;
             let video_queue = thread.video_queue.read().unwrap();
             let tolerable = std::cmp::min(min_decode_fps, video_queue.capacity() / 2);
+            // Re-arm the refresh budget once the queue has recovered.
+            //
+            // `refresh_times` is otherwise only ever incremented, so over a
+            // long-lived connection the budget of 20 is permanently consumed (a
+            // few minutes of intermittent congestion is enough, given the 10s
+            // spacing below). Once spent, this delay-reducing refresh - the only
+            // mechanism that actively flushes an accumulated backlog - never
+            // fires again, so rendering latency keeps growing and never recovers
+            // ("slows down after a while"). The slowdown shows up on BOTH ends
+            // because the depressed decode fps is fed back to the controlled
+            // side as `custom_fps`, throttling the encoder too. Regenerating the
+            // budget after a sustained healthy window keeps the original burst /
+            // flicker protection while letting the valve work for the whole
+            // session.
+            if video_queue.len() <= tolerable
+                && ctl
+                    .last_refresh_instant
+                    .map(|t| t.elapsed().as_secs() > 60)
+                    .unwrap_or(false)
+            {
+                ctl.refresh_times = 0;
+            }
             if ctl.refresh_times < 20 // enough
                     && (video_queue.len() > tolerable
                             && (ctl.refresh_times == 0 || ctl.last_refresh_instant.map(|t|t.elapsed().as_secs() > 10).unwrap_or(false)))

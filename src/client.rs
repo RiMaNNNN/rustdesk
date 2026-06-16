@@ -2856,10 +2856,18 @@ pub fn start_video_thread<F, T>(
                                 *vf
                             }
                             MediaData::VideoQueue => {
+                                // A refresh was requested (e.g. the queue grew too
+                                // deep): every queued frame is now stale and will be
+                                // superseded by the incoming key frame. Drain the
+                                // whole backlog in a single pass so end-to-end
+                                // latency collapses to decode speed, instead of being
+                                // bled off one frame per notification while newer
+                                // frames keep arriving.
+                                if discard_queue.read().unwrap().clone() {
+                                    while video_queue.read().unwrap().pop().is_some() {}
+                                    continue;
+                                }
                                 if let Some(vf) = video_queue.read().unwrap().pop() {
-                                    if discard_queue.read().unwrap().clone() {
-                                        continue;
-                                    }
                                     vf
                                 } else {
                                     continue;

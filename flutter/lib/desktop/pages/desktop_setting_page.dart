@@ -2395,6 +2395,13 @@ class _AboutState extends State<_About> {
                   child: Text('${translate('Version')}: $version')
                       .marginSymmetric(vertical: 4.0)),
               SelectionArea(
+                  child: Text(
+                          "Current Version Patched by CLAUDE - Jun 2026 (don't update)",
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFE69500)))
+                      .marginSymmetric(vertical: 4.0)),
+              SelectionArea(
                   child: Text('${translate('Build Date')}: $buildDate')
                       .marginSymmetric(vertical: 4.0)),
               if (!isWeb)
