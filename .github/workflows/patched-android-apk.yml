@@ -49,6 +49,11 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           targets: aarch64-linux-android
 
+      - name: Install build dependencies (nasm/ninja for aom/vpx/ffmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm yasm ninja-build cmake pkg-config build-essential
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
