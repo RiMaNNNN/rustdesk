@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_hbb/common/patched_build.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -386,6 +387,155 @@ void changeIdWhiteList({Function()? callback}) async {
             },
           ),
       ],
+      onCancel: close,
+    );
+  });
+}
+
+/// Explains how to reach this device through NordVPN Meshnet with direct IP
+/// access and the IP whitelist: what each part does, why, its security
+/// trade-offs, the current values of both settings, and the setup steps for
+/// this device and for the controlling device. Shown from the desktop
+/// Security settings and from the mobile About section.
+void showMeshnetGuideDialog() {
+  final directIpEnabled = option2bool(
+      kOptionDirectServer, bind.mainGetOptionSync(key: kOptionDirectServer));
+  final port = effectiveDirectAccessPort(
+      bind.mainGetOptionSync(key: kOptionDirectAccessPort));
+  final entries = whitelistEntries(
+      bind.mainGetOptionSync(key: kOptionWhitelist), defaultOptionWhitelist);
+  final idEntries = whitelistEntries(
+      bind.mainGetOptionSync(key: kOptionIdWhitelist), defaultOptionWhitelist);
+  final status =
+      whitelistStatus(directIpEnabled: directIpEnabled, entries: entries);
+  gFFI.dialogManager.show((setState, close, context) {
+    const boldStyle = TextStyle(fontWeight: FontWeight.bold);
+    const warningColor = Color.fromARGB(255, 255, 204, 0);
+    Widget heading(String text) =>
+        Text(translate(text), style: boldStyle).marginOnly(top: 16, bottom: 6);
+    Widget paragraph(String text) =>
+        Text(translate(text)).marginOnly(bottom: 6);
+    Widget term(String name, String text) => Text.rich(TextSpan(children: [
+          TextSpan(text: '${translate(name)}: ', style: boldStyle),
+          TextSpan(text: translate(text)),
+        ])).marginOnly(bottom: 6);
+    Widget steps(List<String> items) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < items.length; i++)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 24, child: Text('${i + 1}.')),
+                  Expanded(child: Text(translate(items[i]))),
+                ],
+              ).marginOnly(bottom: 4),
+          ],
+        );
+    Widget statusLine(String name, String value, IconData icon, Color color) =>
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 16, color: color).marginOnly(top: 2, right: 6),
+            Expanded(
+              child: Text.rich(TextSpan(children: [
+                TextSpan(text: '${translate(name)}: ', style: boldStyle),
+                TextSpan(text: value),
+              ])),
+            ),
+          ],
+        ).marginOnly(bottom: 4);
+    final whitelistLine = switch (status) {
+      WhitelistStatus.active => statusLine("IP whitelist", entries.join(', '),
+          Icons.check_circle, Colors.green),
+      WhitelistStatus.missingWhileExposed => statusLine(
+          "IP whitelist",
+          translate("Off: any address can reach the password prompt"),
+          Icons.warning_amber_rounded,
+          warningColor),
+      WhitelistStatus.off => statusLine("IP whitelist", translate("Off"),
+          Icons.radio_button_unchecked, Colors.grey),
+    };
+    return CustomAlertDialog(
+      title: Text(translate("Private connection through NordVPN Meshnet")),
+      contentBoxConstraints: const BoxConstraints(maxWidth: 640),
+      content: SelectionArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            paragraph(
+                "Use this to control a PC from your own phone or computer through NordVPN Meshnet instead of RustDesk's public servers. NordVPN can stay connected on every device the whole time, and Meshnet is free in the NordVPN app."),
+            heading("Current settings on this device"),
+            directIpEnabled
+                ? statusLine(
+                    "Direct IP access",
+                    "${translate("On")} (${translate("Port")} $port)",
+                    Icons.check_circle,
+                    Colors.green)
+                : statusLine("Direct IP access", translate("Off"),
+                    Icons.radio_button_unchecked, Colors.grey),
+            whitelistLine,
+            idEntries.isNotEmpty
+                ? statusLine("ID whitelist", idEntries.join(', '),
+                    Icons.check_circle, Colors.green)
+                : statusLine("ID whitelist", translate("Off"),
+                    Icons.radio_button_unchecked, Colors.grey),
+            heading("What is what"),
+            term("RustDesk ID server and relay",
+                "Normally a device finds this PC through RustDesk's public ID server. When the two devices cannot connect to each other directly, the whole session is carried by a public relay server. The free public relays are shared and often on another continent (from Australia about 200-300 ms there and back), so relayed sessions feel slow."),
+            term("Why NordVPN matters",
+                "With NordVPN connected, direct links between two devices usually fail because the VPN puts each device behind a strict NAT, so sessions fall back to a public relay."),
+            term("NordVPN Meshnet",
+                "A NordVPN feature that links your own devices into a private network. Each device gets a Meshnet IP address and a Nord name. Traffic between the devices is end-to-end encrypted with NordLynx (based on WireGuard), and Meshnet keeps working while the VPN is connected. NordVPN's optional post-quantum protection cannot be on at the same time as Meshnet."),
+            term("Direct IP access",
+                "Lets a device connect straight to this PC's address on TCP port 21118, without RustDesk's ID server or relay. Through Meshnet the session goes from device to device."),
+            term("IP whitelist",
+                "Only the listed addresses may connect to this PC. List the Meshnet IP addresses of the devices you control this PC from, so nobody else can even reach the password prompt."),
+            term("ID whitelist",
+                "Only the listed RustDesk IDs may connect, checked before the password. It works with the VPN on and without Meshnet, so it is the simplest protection when you connect through the ID server: list your phones' IDs."),
+            heading("Security"),
+            paragraph(
+                "The Meshnet tunnel encrypts the whole session between the two devices."),
+            paragraph(
+                "RustDesk's own encryption relies on the ID server to vouch for the other device's key, so connections made by address do not use it. The session therefore shows \"Direct and unencrypted connection\". This is expected: the Meshnet tunnel is still encrypting everything."),
+            paragraph(
+                "This build refuses any other unencrypted session: one introduced by the ID server that ends up without encryption is turned away with an error, and a direct IP connection is accepted only from a whitelisted address. The setting allow-unencrypted-sessions = Y restores stock behaviour; leave it unset."),
+            paragraph(
+                "Your RustDesk password, and the two-factor code if enabled, are still required. The password is never sent in readable form."),
+            paragraph(
+                "Direct IP access listens on every network this PC is connected to, not only on Meshnet. Without the whitelist, someone on the same Wi-Fi could reach port 21118 outside Meshnet and try your password. Keep the whitelist on."),
+            paragraph(
+                "While the IP whitelist is on, connections made with the RustDesk ID are refused as well, because they arrive from addresses outside the list. Clear the IP whitelist to use the ID again; the ID whitelist can stay."),
+            heading("Set up the PC"),
+            steps([
+              "Open the NordVPN app, go to Meshnet and turn it on. Note this PC's Meshnet IP address and its Nord name.",
+              "In the Meshnet device list, open the phone or computer you will control this PC from and make sure it is allowed remote access to this PC.",
+              "In RustDesk open Settings, Security, click \"Unlock security settings\" and tick \"Enable direct IP access\". Keep port 21118 unless you have a reason to change it.",
+              "Tick \"Use IP Whitelisting\" and enter the Meshnet IP address of each device that will control this PC, one per line.",
+              "Keep NordVPN running with Meshnet on whenever you want to reach this PC.",
+            ]),
+            heading("Set up the phone or other controlling device"),
+            steps([
+              "Install the NordVPN app and sign in with the same Nord account. Up to 10 of your own devices can join, and a device on another Nord account can be invited.",
+              "Turn on Meshnet. The VPN can stay connected at the same time. Turn Meshnet off again after the session if you want NordVPN's post-quantum protection back on that device.",
+              "Check that the PC shows as online in the Meshnet device list, and note the phone's own Meshnet IP address for the PC's whitelist.",
+              "Install the patched RustDesk app built from this fork, not the stock one.",
+              "In RustDesk type the PC's Meshnet IP address in the ID field and connect. The Nord name works too if you add :21118 at the end. If you changed the port, add a colon and the port after the address.",
+              "Enter the PC's RustDesk password, and the two-factor code if asked.",
+            ]),
+            heading("Check that it works"),
+            paragraph(
+                "On a computer, hover over the icon on the session tab. On the phone, open the display options of the session: the connection type is shown at the top. \"Direct and unencrypted connection\" means the session runs through Meshnet. \"Relayed\" means it went through a RustDesk relay instead."),
+            paragraph(
+                "If it does not connect, check that Meshnet is on in both NordVPN apps, that the PC shows as online, that the controlling device's Meshnet IP is in the whitelist, and that you typed the PC's Meshnet IP rather than its RustDesk ID."),
+            heading("Turning it off"),
+            paragraph(
+                "Untick \"Enable direct IP access\" and clear the IP whitelist. Connecting with the RustDesk ID then works as before."),
+          ],
+        ),
+      ),
+      actions: [dialogButton("OK", onPressed: close)],
+      onSubmit: close,
       onCancel: close,
     );
   });

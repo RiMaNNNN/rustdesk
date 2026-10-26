@@ -6,6 +6,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/patched_build.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -60,14 +61,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(
-        child: Row(
+        // The home window content sits in a SelectionArea so all of its text
+        // (your ID, peer cards, status and help text) can be selected and
+        // copied with the mouse / Ctrl+C. Safe here: this window has no
+        // remote-control canvas to conflict with selection drags.
+        child: SelectionArea(
+            child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         buildLeftPane(context),
         if (!isIncomingOnly) const VerticalDivider(width: 1),
         if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
       ],
-    ));
+    )));
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -90,6 +96,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         child: loadLogo(),
       ),
       buildTip(context),
+      Align(
+        alignment: Alignment.center,
+        child: Text(
+          kPatchedBuildLabel,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFFE69500)),
+        ),
+      ).marginSymmetric(vertical: 6.0),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
       FutureBuilder<Widget>(

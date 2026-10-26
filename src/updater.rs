@@ -84,13 +84,25 @@ pub fn update_controlling_session_count(count: usize) {
     CONTROLLING_SESSION_COUNT.store(count, Ordering::SeqCst);
 }
 
+/// Updates are disabled in this patched build: an update would replace the
+/// patched binaries with the stock ones and lose the local patches. Every
+/// entry point below returns before contacting the update server, whatever
+/// the `allow-auto-update` option says.
+const UPDATES_DISABLED: bool = true;
+
 #[allow(dead_code)]
 pub fn start_auto_update() {
+    if UPDATES_DISABLED {
+        return;
+    }
     let _sender = TX_MSG.lock().unwrap();
 }
 
 #[allow(dead_code)]
 pub fn manually_check_update() -> ResultType<()> {
+    if UPDATES_DISABLED {
+        return Ok(());
+    }
     let sender = TX_MSG.lock().unwrap();
     sender.send(UpdateMsg::CheckUpdate)?;
     Ok(())
@@ -174,6 +186,9 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
 }
 
 fn check_update(manually: bool) -> ResultType<()> {
+    if UPDATES_DISABLED {
+        return Ok(());
+    }
     // On macOS, auto-update is handled by check_update_as_root() in the service process.
     // The shared check_update() path is only used for manual update checks from the GUI.
     #[cfg(target_os = "macos")]
@@ -534,6 +549,9 @@ pub fn start_auto_update_macos() {
 
 #[cfg(target_os = "macos")]
 pub fn check_update_as_root() -> ResultType<bool> {
+    if UPDATES_DISABLED {
+        return Ok(false);
+    }
     let _update_lock = acquire_mac_update_lock()?;
     // Allow-auto-update setting
     if !config::Config::get_bool_option(keys::OPTION_ALLOW_AUTO_UPDATE) {

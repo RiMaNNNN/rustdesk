@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/patched_build.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -24,6 +25,24 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+
+/// Replaces the update switches: says why this build never updates itself.
+Widget patchedUpdaterNote(BuildContext context) {
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(Icons.info_outline,
+              size: 16, color: Theme.of(context).colorScheme.primary)
+          .marginOnly(right: 6, top: 2),
+      Expanded(
+        child: SelectionArea(
+          child: Text(kPatchedBuildUpdaterNote,
+              style: Theme.of(context).textTheme.bodySmall),
+        ),
+      ),
+    ],
+  ).marginOnly(left: _kCheckBoxLeftMargin, top: 6, bottom: 6);
+}
 
 const double _kTabWidth = 200;
 const double _kTabHeight = 42;
@@ -482,8 +501,6 @@ class _GeneralState extends State<_General> {
   Widget other() {
     final incomingOnly = bind.isIncomingOnly();
     final outgoingOnly = bind.isOutgoingOnly();
-    final showAutoUpdate = (isWindows && bind.mainIsInstalled()) ||
-    (isMacOS && bind.mainIsInstalled() && bind.mainIsInstalledDaemon(prompt: false) && !bind.isCustomClient());
     final children = <Widget>[
       if (!isWeb && !incomingOnly)
         _OptionCheckBox(context, 'Confirm before closing multiple tabs',
@@ -551,20 +568,7 @@ class _GeneralState extends State<_General> {
             ),
           ),
       ],
-      if (!isWeb && !bind.isCustomClient())
-        _OptionCheckBox(
-          context,
-          'Check for software update on startup',
-          kOptionEnableCheckUpdate,
-          isServer: false,
-        ),
-      if (showAutoUpdate)
-        _OptionCheckBox(
-          context,
-          'Auto update',
-          kOptionAllowAutoUpdate,
-          isServer: true,
-        ),
+      if (!isWeb) patchedUpdaterNote(context),
       if (isWindows && !outgoingOnly)
         _OptionCheckBox(
           context,
@@ -1394,6 +1398,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
       shareRdp(context, enabled),
       _OptionCheckBox(context, 'Deny LAN discovery', 'enable-lan-discovery',
           reverse: true, enabled: enabled),
+      meshnetGuide(context),
       ...directIp(context),
       whitelist(),
       idWhitelist(),
@@ -1407,6 +1412,31 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
             reverse: false, enabled: enabled),
       if (bind.mainIsInstalled() && !isUnlockPinDisabled()) unlockPin()
     ]);
+  }
+
+  /// Link to the guide on reaching this PC through NordVPN Meshnet.
+  Widget meshnetGuide(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: showMeshnetGuideDialog,
+        child: Row(
+          children: [
+            Icon(Icons.help_outline, size: 16, color: color)
+                .marginOnly(right: 6),
+            Expanded(
+              child: Text(
+                translate(
+                    'Private connection through NordVPN Meshnet: what it is and how to set it up'),
+                style: TextStyle(
+                    color: color, decoration: TextDecoration.underline),
+              ),
+            ),
+          ],
+        ).marginOnly(left: _kCheckBoxLeftMargin, top: 6, bottom: 6),
+      ),
+    );
   }
 
   shareRdp(BuildContext context, bool enabled) {
@@ -2541,6 +2571,12 @@ class _AboutState extends State<_About> {
               ),
               SelectionArea(
                   child: Text('${translate('Version')}: $version')
+                      .marginSymmetric(vertical: 4.0)),
+              SelectionArea(
+                  child: Text(kPatchedBuildLabel,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFE69500)))
                       .marginSymmetric(vertical: 4.0)),
               SelectionArea(
                   child: Text('${translate('Build Date')}: $buildDate')

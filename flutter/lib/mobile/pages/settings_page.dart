@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/common/patched_build.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:get/get.dart';
@@ -71,7 +72,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       false; //androidVersion >= 26; // remove because not work on every device
   var _ignoreBatteryOpt = false;
   var _enableStartOnBoot = false;
-  var _checkUpdateOnStartup = false;
   var _showTerminalExtraKeys = false;
   var _floatingWindowDisabled = false;
   var _keepScreenOn = KeepScreenOn.duringControlled; // relay on floating window
@@ -186,13 +186,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       if (enableStartOnBoot != _enableStartOnBoot) {
         update = true;
         _enableStartOnBoot = enableStartOnBoot;
-      }
-
-      var checkUpdateOnStartup =
-          mainGetLocalBoolOptionSync(kOptionEnableCheckUpdate);
-      if (checkUpdateOnStartup != _checkUpdateOnStartup) {
-        update = true;
-        _checkUpdateOnStartup = checkUpdateOnStartup;
       }
 
       var floatingWindowDisabled =
@@ -631,16 +624,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
 
     if (!bind.isCustomClient()) {
       enhancementsTiles.add(
-        SettingsTile.switchTile(
-          initialValue: _checkUpdateOnStartup,
-          title:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(translate('Check for software update on startup')),
-          ]),
-          onToggle: (bool toValue) async {
-            await mainSetLocalBoolOption(kOptionEnableCheckUpdate, toValue);
-            setState(() => _checkUpdateOnStartup = toValue);
-          },
+        SettingsTile(
+          leading: Icon(Icons.info_outline),
+          title: Text(translate('Software updates')),
+          description: Text(kPatchedBuildUpdaterNote),
         ),
       );
     }
@@ -1036,6 +1023,17 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       )),
                 ),
                 leading: Icon(Icons.info)),
+            SettingsTile(
+                title: Text(kPatchedBuildLabel,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFE69500))),
+                leading: Icon(Icons.verified_outlined)),
+            SettingsTile(
+                onPressed: (context) => showMeshnetGuideDialog(),
+                title: Text(translate(
+                    'Private connection through NordVPN Meshnet: what it is and how to set it up')),
+                leading: Icon(Icons.help_outline)),
             SettingsTile(
                 title: Text(translate("Build Date")),
                 value: Padding(

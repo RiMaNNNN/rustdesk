@@ -208,6 +208,101 @@ async fn accept_connection_(
     Ok(())
 }
 
+/// Option that lets this device accept sessions whose transport carries no RustDesk-level
+/// encryption. Absent or anything but "Y" (the default) refuses them.
+pub const OPTION_ALLOW_UNENCRYPTED_SESSIONS: &str = "allow-unencrypted-sessions";
+
+/// Login error sent to a controller whose session the encrypted-only rule refused.
+pub const UNENCRYPTED_SESSION_REFUSED: &str = "This device accepts encrypted sessions only: connect through the ID server, or from a whitelisted address with direct IP access.";
+
+/// Whether a session may go on when its transport carries no RustDesk-level encryption.
+///
+/// `transport_secured`: the stream has a negotiated key, or is a DTLS-encrypted WebRTC stream.
+/// `via_rendezvous`: the ID server introduced the connection (the signed-identity handshake ran),
+/// as opposed to the connection arriving on the direct IP access listener.
+/// `addr_whitelisted`: the peer address matches an entry of the IP whitelist.
+/// `allow_unencrypted`: the `allow-unencrypted-sessions` option.
+///
+/// An encrypted transport always passes. Otherwise the option passes everything (stock
+/// behaviour); a direct IP access connection passes only from a whitelisted address, since a
+/// private tunnel such as a Meshnet link already encrypts it end to end; and an ID-server session
+/// that ended up unencrypted is a downgrade and is refused.
+pub fn unencrypted_session_allowed(
+    transport_secured: bool,
+    via_rendezvous: bool,
+    addr_whitelisted: bool,
+    allow_unencrypted: bool,
+) -> bool {
+    transport_secured || allow_unencrypted || (!via_rendezvous && addr_whitelisted)
+}
+
+/// Whether `addr` matches an entry of the IP whitelist option: the same CIDR match the
+/// connection applies at login, except that the `0.0.0.0` wildcard counts as no match here.
+pub fn whitelist_allows(addr: &SocketAddr) -> bool {
+    whitelist_contains(&Config::get_option("whitelist"), addr)
+}
+
+/// `whitelist_allows` on an explicit comma-separated `whitelist` value.
+pub fn whitelist_contains(whitelist: &str, addr: &SocketAddr) -> bool {
+    use std::str::FromStr;
+    let entries: Vec<&str> = whitelist.split(',').filter(|x| !x.is_empty()).collect();
+    !entries.is_empty()
+        && !entries.iter().any(|x| *x == "0.0.0.0")
+        && entries.iter().any(|x| {
+            cidr_utils::cidr::IpCidr::from_str(x).map_or(false, |c| c.contains(addr.ip()))
+        })
+}
+
+#[cfg(test)]
+mod encrypted_only_tests {
+    use super::*;
+
+    fn addr(s: &str) -> SocketAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn encrypted_transport_always_passes() {
+        for via_rendezvous in [true, false] {
+            for whitelisted in [true, false] {
+                assert!(unencrypted_session_allowed(true, via_rendezvous, whitelisted, false));
+            }
+        }
+    }
+
+    #[test]
+    fn rendezvous_session_without_encryption_is_refused() {
+        assert!(!unencrypted_session_allowed(false, true, true, false));
+        assert!(!unencrypted_session_allowed(false, true, false, false));
+    }
+
+    #[test]
+    fn direct_ip_session_needs_a_whitelisted_address() {
+        assert!(unencrypted_session_allowed(false, false, true, false));
+        assert!(!unencrypted_session_allowed(false, false, false, false));
+    }
+
+    #[test]
+    fn option_restores_stock_behaviour() {
+        assert!(unencrypted_session_allowed(false, true, false, true));
+        assert!(unencrypted_session_allowed(false, false, false, true));
+    }
+
+    #[test]
+    fn whitelist_matches_hosts_and_ranges_only() {
+        let peer = addr("100.64.5.6:21118");
+        assert!(whitelist_contains("100.64.5.6", &peer));
+        assert!(whitelist_contains("100.64.0.0/10", &peer));
+        assert!(whitelist_contains("10.0.0.0/8,100.64.5.6", &peer));
+        assert!(!whitelist_contains("", &peer));
+        assert!(!whitelist_contains(",", &peer));
+        assert!(!whitelist_contains("10.0.0.0/8", &peer));
+        assert!(!whitelist_contains("0.0.0.0", &peer));
+        assert!(!whitelist_contains("0.0.0.0,100.64.5.6", &peer));
+        assert!(!whitelist_contains("not an address", &peer));
+    }
+}
+
 pub async fn create_tcp_connection(
     server: ServerPtr,
     stream: Stream,
@@ -231,6 +326,20 @@ pub async fn create_tcp_connection(
         _ = unauthorized.evicted() => {
             bail!("evicted to make room for a newer unauthenticated connection");
         }
+    }
+    if !unencrypted_session_allowed(
+        stream.is_secured() || stream.is_webrtc(),
+        secure,
+        whitelist_allows(&addr),
+        Config::get_bool_option(OPTION_ALLOW_UNENCRYPTED_SESSIONS),
+    ) {
+        log::warn!("Unencrypted session from {} refused", addr);
+        let mut msg_out = Message::new();
+        let mut res = LoginResponse::new();
+        res.set_error(UNENCRYPTED_SESSION_REFUSED.to_owned());
+        msg_out.set_login_response(res);
+        let _ = timeout(CONNECT_TIMEOUT, stream.send(&msg_out)).await;
+        bail!("unencrypted session from {} refused", addr);
     }
 
     #[cfg(target_os = "macos")]

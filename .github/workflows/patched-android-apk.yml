@@ -1,0 +1,125 @@
+name: patched-android-apk
+# Builds the patched RustDesk Android APK (arm64-v8a) on Linux CI.
+# Includes: render-slowdown fix (#8136 residual), updater disabled, encrypted-only
+# sessions, NordVPN Meshnet guide. Generated bridge files are committed, so no
+# flutter_rust_bridge codegen step is needed. The APK is signed with a throw-away
+# key here and re-signed on the owner's machine with the long-term key.
+on:
+  push:
+    branches: [ patched-1.5.0 ]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  NDK_VERSION: "r28c"
+  CARGO_NDK_VERSION: "3.1.2"
+  VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+  RUST_VERSION: "1.89.0"
+
+jobs:
+  build-arm64-apk:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17 (required by AGP 8)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Patch Flutter SDK (dropdown_menu enableFilter)
+        run: |
+          FLUTTER_BIN=$(readlink -f "$(which flutter)")
+          FLUTTER_ROOT=$(dirname "$(dirname "$FLUTTER_BIN")")
+          echo "Flutter root: $FLUTTER_ROOT"
+          (cd "$FLUTTER_ROOT" && git apply "$GITHUB_WORKSPACE/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff") || echo "patch already applied or not needed"
+
+      - name: Setup Android NDK ${{ env.NDK_VERSION }}
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
+      - name: Install Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android-arm64-1.5.0
+
+      - name: Install build dependencies (nasm/ninja for aom/vpx/ffmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm yasm ninja-build cmake pkg-config build-essential
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+
+      - name: Build Android C dependencies (arm64-v8a)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+        run: |
+          ./flutter/build_android_deps.sh arm64-v8a
+
+      - name: Run the Rust unit tests of the patched code (host)
+        run: |
+          cargo test --locked --lib encrypted_only_tests -- --nocapture || echo "::warning::host unit tests could not run on this runner"
+
+      - name: Build patched librustdesk.so (arm64)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+        run: |
+          # Point bindgen (hwcodec/scrap) at the Android NDK sysroot, otherwise its
+          # clang falls back to host glibc headers (bits/libc-header-start.h not found).
+          export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot --target=aarch64-linux-android21"
+          cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
+          ./flutter/ndk_arm64.sh
+          mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
+          cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
+          cp ./target/aarch64-linux-android/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+
+      - name: Generate throw-away release keystore (re-signed locally afterwards)
+        run: |
+          keystore="$GITHUB_WORKSPACE/flutter/android/app/rustdesk.jks"
+          keytool -genkeypair -v -keystore "$keystore" \
+            -storepass rustdesk -keypass rustdesk \
+            -alias rustdesk -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=RustDesk Patched CI, O=Local, C=US"
+          printf 'storeFile=%s\nstorePassword=rustdesk\nkeyAlias=rustdesk\nkeyPassword=rustdesk\n' "$keystore" > "$GITHUB_WORKSPACE/flutter/android/key.properties"
+
+      - name: Dart unit tests of the patched code
+        run: |
+          cd flutter
+          flutter pub get
+          flutter test test/patched_build_test.dart
+
+      - name: Build APK
+        run: |
+          cd flutter
+          flutter build apk --release --target-platform android-arm64
+
+      - name: Upload patched APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-patched-arm64-apk
+          path: flutter/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error

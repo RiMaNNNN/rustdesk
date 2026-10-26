@@ -4066,20 +4066,11 @@ void earlyAssert() {
 }
 
 void checkUpdate() {
-  if (!isWeb) {
-    if (!bind.isCustomClient()) {
-      platformFFI.registerEventHandler(
-          kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
-          (Map<String, dynamic> evt) async {
-        if (evt['url'] is String) {
-          stateGlobal.updateUrl.value = evt['url'];
-        }
-      });
-      Timer(const Duration(seconds: 1), () async {
-        bind.mainGetSoftwareUpdateUrl();
-      });
-    }
-  }
+  // Update checking is disabled in this patched build: accepting an in-app
+  // update would replace the app with a stock build and lose the local
+  // patches. The Rust-side updater is disabled as well (src/updater.rs), so
+  // no setting can turn it back on.
+  return;
 }
 
 // https://github.com/flutter/flutter/issues/153560#issuecomment-2497160535
