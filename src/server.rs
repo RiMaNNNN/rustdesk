@@ -201,6 +201,7 @@ async fn accept_connection_(
             Stream::from(stream, stream_addr),
             addr,
             secure,
+            ConnectionOrigin::Rendezvous,
             meta,
         )
         .await?;
@@ -215,11 +216,21 @@ pub const OPTION_ALLOW_UNENCRYPTED_SESSIONS: &str = "allow-unencrypted-sessions"
 /// Login error sent to a controller whose session the encrypted-only rule refused.
 pub const UNENCRYPTED_SESSION_REFUSED: &str = "This device accepts encrypted sessions only: connect through the ID server, or from a whitelisted address with direct IP access.";
 
+/// Where an incoming connection came from, decided by the code path that accepted it and never
+/// by anything the peer or the rendezvous server sent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConnectionOrigin {
+    /// Introduced by the ID server: relay, hole punch, KCP or WebRTC.
+    Rendezvous,
+    /// Accepted on this device's own direct IP access listener; the peer address is the one the
+    /// socket accepted.
+    DirectListener,
+}
+
 /// Whether a session may go on when its transport carries no RustDesk-level encryption.
 ///
 /// `transport_secured`: the stream has a negotiated key, or is a DTLS-encrypted WebRTC stream.
-/// `via_rendezvous`: the ID server introduced the connection (the signed-identity handshake ran),
-/// as opposed to the connection arriving on the direct IP access listener.
+/// `origin`: which listener accepted the connection.
 /// `addr_whitelisted`: the peer address matches an entry of the IP whitelist.
 /// `allow_unencrypted`: the `allow-unencrypted-sessions` option.
 ///
@@ -229,11 +240,13 @@ pub const UNENCRYPTED_SESSION_REFUSED: &str = "This device accepts encrypted ses
 /// that ended up unencrypted is a downgrade and is refused.
 pub fn unencrypted_session_allowed(
     transport_secured: bool,
-    via_rendezvous: bool,
+    origin: ConnectionOrigin,
     addr_whitelisted: bool,
     allow_unencrypted: bool,
 ) -> bool {
-    transport_secured || allow_unencrypted || (!via_rendezvous && addr_whitelisted)
+    transport_secured
+        || allow_unencrypted
+        || (origin == ConnectionOrigin::DirectListener && addr_whitelisted)
 }
 
 /// Whether `addr` matches an entry of the IP whitelist option: the same CIDR match the
@@ -261,31 +274,33 @@ mod encrypted_only_tests {
         s.parse().unwrap()
     }
 
+    use ConnectionOrigin::{DirectListener, Rendezvous};
+
     #[test]
     fn encrypted_transport_always_passes() {
-        for via_rendezvous in [true, false] {
+        for origin in [Rendezvous, DirectListener] {
             for whitelisted in [true, false] {
-                assert!(unencrypted_session_allowed(true, via_rendezvous, whitelisted, false));
+                assert!(unencrypted_session_allowed(true, origin, whitelisted, false));
             }
         }
     }
 
     #[test]
-    fn rendezvous_session_without_encryption_is_refused() {
-        assert!(!unencrypted_session_allowed(false, true, true, false));
-        assert!(!unencrypted_session_allowed(false, true, false, false));
+    fn rendezvous_session_without_encryption_is_refused_whatever_the_address() {
+        assert!(!unencrypted_session_allowed(false, Rendezvous, true, false));
+        assert!(!unencrypted_session_allowed(false, Rendezvous, false, false));
     }
 
     #[test]
     fn direct_ip_session_needs_a_whitelisted_address() {
-        assert!(unencrypted_session_allowed(false, false, true, false));
-        assert!(!unencrypted_session_allowed(false, false, false, false));
+        assert!(unencrypted_session_allowed(false, DirectListener, true, false));
+        assert!(!unencrypted_session_allowed(false, DirectListener, false, false));
     }
 
     #[test]
     fn option_restores_stock_behaviour() {
-        assert!(unencrypted_session_allowed(false, true, false, true));
-        assert!(unencrypted_session_allowed(false, false, false, true));
+        assert!(unencrypted_session_allowed(false, Rendezvous, false, true));
+        assert!(unencrypted_session_allowed(false, DirectListener, false, true));
     }
 
     #[test]
@@ -308,6 +323,7 @@ pub async fn create_tcp_connection(
     stream: Stream,
     addr: SocketAddr,
     secure: bool,
+    origin: ConnectionOrigin,
     meta: ConnectionMeta,
 ) -> ResultType<()> {
     let mut stream = stream;
@@ -329,7 +345,7 @@ pub async fn create_tcp_connection(
     }
     if !unencrypted_session_allowed(
         stream.is_secured() || stream.is_webrtc(),
-        secure,
+        origin,
         whitelist_allows(&addr),
         Config::get_bool_option(OPTION_ALLOW_UNENCRYPTED_SESSIONS),
     ) {
@@ -524,7 +540,15 @@ async fn create_relay_connection_(
         ..Default::default()
     });
     stream.send(&msg_out).await?;
-    create_tcp_connection(server, stream, peer_addr, secure, meta).await?;
+    create_tcp_connection(
+        server,
+        stream,
+        peer_addr,
+        secure,
+        ConnectionOrigin::Rendezvous,
+        meta,
+    )
+    .await?;
     Ok(())
 }
 

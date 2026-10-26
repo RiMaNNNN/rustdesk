@@ -7233,8 +7233,15 @@ mod test {
             let addr: SocketAddr = format!("192.0.2.{}:1", i + 1).parse().unwrap();
             let server = server.clone();
             handshakes.push(tokio::spawn(async move {
-                crate::server::create_tcp_connection(server, served, addr, true, Default::default())
-                    .await
+                crate::server::create_tcp_connection(
+                    server,
+                    served,
+                    addr,
+                    true,
+                    crate::server::ConnectionOrigin::Rendezvous,
+                    Default::default(),
+                )
+                .await
             }));
         }
         for _ in 0..200 {
@@ -7253,6 +7260,7 @@ mod test {
             served,
             addr,
             true,
+            crate::server::ConnectionOrigin::Rendezvous,
             Default::default(),
         )
         .await;
@@ -7296,8 +7304,15 @@ mod test {
         let (mut controller, (accepted, addr)) = (controller.unwrap(), accepted.unwrap());
         let served = Stream::Tcp(hbb_common::tcp::FramedStream::from(accepted, addr));
         let handshake = tokio::spawn(async move {
-            crate::server::create_tcp_connection(server, served, addr, true, Default::default())
-                .await
+            crate::server::create_tcp_connection(
+                server,
+                served,
+                addr,
+                true,
+                crate::server::ConnectionOrigin::Rendezvous,
+                Default::default(),
+            )
+            .await
         });
         let n = MAX_UNAUTHORIZED_MESSAGE + 1;
         controller
