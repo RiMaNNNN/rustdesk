@@ -61,6 +61,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: android-arm64-1.5.0
+          cache-on-failure: true
 
       - name: Install build dependencies (nasm/ninja for aom/vpx/ffmpeg)
         run: |
@@ -114,6 +115,9 @@ jobs:
 
       - name: Build APK
         run: |
+          # R8 (bytecode shrinking) of the 1.5.0 app exceeds Gradle's default 1 GB heap on the
+          # runner; upstream's workflow raises it the same way.
+          sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx4g/" flutter/android/gradle.properties
           cd flutter
           flutter build apk --release --target-platform android-arm64
 
