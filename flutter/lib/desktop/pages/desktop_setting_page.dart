@@ -1428,7 +1428,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
             Expanded(
               child: Text(
                 translate(
-                    'Private connection through NordVPN Meshnet: what it is and how to set it up'),
+                    kMeshnetGuideLinkText),
                 style: TextStyle(
                     color: color, decoration: TextDecoration.underline),
               ),

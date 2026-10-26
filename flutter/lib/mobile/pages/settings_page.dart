@@ -1032,7 +1032,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             SettingsTile(
                 onPressed: (context) => showMeshnetGuideDialog(),
                 title: Text(translate(
-                    'Private connection through NordVPN Meshnet: what it is and how to set it up')),
+                    kMeshnetGuideLinkText)),
                 leading: Icon(Icons.help_outline)),
             SettingsTile(
                 title: Text(translate("Build Date")),
